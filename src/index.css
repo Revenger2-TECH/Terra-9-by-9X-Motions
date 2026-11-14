@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@layer base {
+  :root {
+    --t9-canvas: #04060A;
+    --t9-surface: #0B101B;
+    --t9-surface-elevated: #111827;
+    --t9-border: rgba(255, 255, 255, 0.08);
+    --t9-border-hover: rgba(56, 189, 248, 0.35);
+    --t9-cyan: #22D3EE;
+    --t9-azure: #38BDF8;
+    --t9-amber: #F59E0B;
+    --t9-emerald: #10B981;
+    --t9-red: #EF4444;
+    --t9-text-primary: #F8FAFC;
+    --t9-text-secondary: #94A3B8;
+    --t9-text-muted: #64748B;
+  }
+
+  html,
+  body {
+    background-color: #04060A;
+    color: #F8FAFC;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle atmospheric backdrop for workspace */
+.t9-atmosphere {
+  background-image:
+    radial-gradient(ellipse 75% 40% at 50% -8%, rgba(34, 211, 238, 0.08), transparent),
+    radial-gradient(ellipse 45% 30% at 90% 10%, rgba(56, 189, 248, 0.05), transparent);
+}
+
+/* Custom sleek scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #04060A;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.38);
+}
+
+/* Leaflet overrides for premium dark spatial canvas */
+.leaflet-container {
+  background: #05080F !important;
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(4, 6, 10, 0.8) !important;
+  color: #64748B !important;
+  font-size: 10px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-left-radius: 8px;
+}
+
+.leaflet-control-attribution a {
+  color: #38BDF8 !important;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #0B101B !important;
+  color: #F8FAFC !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.7) !important;
+  border-radius: 10px !important;
+}
+
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #0F172A !important;
+  }
+}

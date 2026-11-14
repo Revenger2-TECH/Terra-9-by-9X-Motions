@@ -1,0 +1,6 @@
+{
+  "name": "TERRA-9 — Earth Analog Intelligence System",
+  "description": "Planetary intelligence and geospatial Earth analog discovery platform developed by 9X MOTIONS for NASA Space Apps Challenge 2026.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

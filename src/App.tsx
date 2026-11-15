@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   BarChart3,
@@ -11,6 +10,7 @@ import {
   Menu,
   Orbit,
   Play,
+  Settings2,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -34,6 +34,13 @@ import { MissionReportsView } from './components/MissionReportsView';
 import { PlanetaryExplorerView } from './components/PlanetaryExplorerView';
 import { SystemInformationView } from './components/SystemInformationView';
 import { StatusIndicator } from './components/TelemetryPrimitives';
+import {
+  DEFAULT_GLASS_SETTINGS,
+  GlassMaterialPopover,
+  glassToCssVariables,
+  useSubpageReveal,
+  type GlassSettings,
+} from './components/ui/adjustable-glass-dashboard';
 import PerspectiveTunnelHero from './components/ui/perspective-tunnel-hero';
 
 const NAV_ITEMS: Array<{
@@ -82,6 +89,18 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [analysisStageText, setAnalysisStageText] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [glassSettings, setGlassSettings] = useState<GlassSettings>(DEFAULT_GLASS_SETTINGS);
+  const [glassOpen, setGlassOpen] = useState(false);
+
+  const workspaceRootRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const glassButtonRef = useRef<HTMLButtonElement>(null);
+
+  useSubpageReveal(workspaceRootRef, contentRef, [
+    activeRoute,
+    loadingInitial,
+    showSpatialIntro,
+  ]);
 
   const pushToast = useCallback((tone: ToastState['tone'], text: string) => {
     const id = Date.now();
@@ -299,7 +318,11 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#04060A] t9-atmosphere text-[#F8FAFC] flex flex-col lg:flex-row">
+    <div
+      ref={workspaceRootRef}
+      style={glassToCssVariables(glassSettings)}
+      className="min-h-screen bg-[#04060A] t9-atmosphere text-[#F8FAFC] flex flex-col lg:flex-row"
+    >
       {/* Sleek Glassmorphic Left Sidebar */}
       <aside
         aria-label="Primary Module Navigation"
@@ -427,13 +450,28 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-white/[0.04] border border-white/[0.07] font-mono text-[11px]">
               <span className="text-slate-500">Target:</span>
               <span className="text-cyan-300 font-medium whitespace-nowrap">
                 {activeTarget ? `${activeTarget.body}: ${activeTarget.name}` : 'Loading'}
               </span>
             </div>
+
+            <button
+              type="button"
+              ref={glassButtonRef}
+              aria-expanded={glassOpen}
+              onClick={() => setGlassOpen((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors ${
+                glassOpen
+                  ? 'bg-cyan-400/15 border-cyan-400/50 text-cyan-300'
+                  : 'bg-white/[0.04] border-white/10 text-slate-300 hover:text-white hover:border-white/25'
+              }`}
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Adjust glass</span>
+            </button>
 
             <button
               type="button"
@@ -452,6 +490,14 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <GlassMaterialPopover
+          open={glassOpen}
+          material={glassSettings}
+          onChange={setGlassSettings}
+          onClose={() => setGlassOpen(false)}
+          triggerRef={glassButtonRef}
+        />
 
         {toast && (
           <div
@@ -494,97 +540,89 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeRoute}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              >
-                {activeRoute === 'mission-control' && (
-                  <MissionControlView
-                    targets={targets}
-                    activeTargetId={activeTargetId}
-                    onSelectTarget={handleSelectTarget}
-                    earthSites={earthSites}
-                    datasets={datasets}
-                    latestAnalysis={currentAnalysis}
-                    activityLog={activityLog}
-                    onNavigate={setActiveRoute}
-                    onGenerateTopReport={() => {
-                      const top = currentAnalysis?.results.find((r) => r.rank === 1);
-                      if (currentAnalysis && top) {
-                        handleGenerateReport(currentAnalysis.analysisId, top.siteId);
-                      } else {
-                        pushToast('amber', 'Run analysis first to generate a ranked report.');
-                      }
-                    }}
-                    onOpenSpatialCorridor={() => setShowSpatialIntro(true)}
-                  />
-                )}
+            <div ref={contentRef} key={activeRoute}>
+              {activeRoute === 'mission-control' && (
+                <MissionControlView
+                  targets={targets}
+                  activeTargetId={activeTargetId}
+                  onSelectTarget={handleSelectTarget}
+                  earthSites={earthSites}
+                  datasets={datasets}
+                  latestAnalysis={currentAnalysis}
+                  activityLog={activityLog}
+                  onNavigate={setActiveRoute}
+                  onGenerateTopReport={() => {
+                    const top = currentAnalysis?.results.find((r) => r.rank === 1);
+                    if (currentAnalysis && top) {
+                      handleGenerateReport(currentAnalysis.analysisId, top.siteId);
+                    } else {
+                      pushToast('amber', 'Run analysis first to generate a ranked report.');
+                    }
+                  }}
+                  onOpenSpatialCorridor={() => setShowSpatialIntro(true)}
+                />
+              )}
 
-                {activeRoute === 'planetary-explorer' && (
-                  <PlanetaryExplorerView
-                    targets={targets}
-                    activeTargetId={activeTargetId}
-                    onSelectTarget={handleSelectTarget}
-                    onNavigateDiscovery={() => setActiveRoute('earth-discovery')}
-                  />
-                )}
+              {activeRoute === 'planetary-explorer' && (
+                <PlanetaryExplorerView
+                  targets={targets}
+                  activeTargetId={activeTargetId}
+                  onSelectTarget={handleSelectTarget}
+                  onNavigateDiscovery={() => setActiveRoute('earth-discovery')}
+                />
+              )}
 
-                {activeRoute === 'earth-discovery' && (
-                  <EarthAnalogDiscoveryView
-                    targets={targets}
-                    activeTargetId={activeTargetId}
-                    onSelectTarget={handleSelectTarget}
-                    sites={earthSites}
-                    analysis={currentAnalysis}
-                    selectedSiteId={selectedSiteId}
-                    onSelectSite={setSelectedSiteId}
-                    onOpenComparison={(siteId) => {
-                      setSelectedSiteId(siteId);
-                      setActiveRoute('comparative-analysis');
-                    }}
-                  />
-                )}
+              {activeRoute === 'earth-discovery' && (
+                <EarthAnalogDiscoveryView
+                  targets={targets}
+                  activeTargetId={activeTargetId}
+                  onSelectTarget={handleSelectTarget}
+                  sites={earthSites}
+                  analysis={currentAnalysis}
+                  selectedSiteId={selectedSiteId}
+                  onSelectSite={setSelectedSiteId}
+                  onOpenComparison={(siteId) => {
+                    setSelectedSiteId(siteId);
+                    setActiveRoute('comparative-analysis');
+                  }}
+                />
+              )}
 
-                {activeRoute === 'comparative-analysis' && (
-                  <ComparativeAnalysisView
-                    targets={targets}
-                    activeTargetId={activeTargetId}
-                    onSelectTarget={handleSelectTarget}
-                    sites={earthSites}
-                    selectedSiteId={selectedSiteId}
-                    onSelectSite={setSelectedSiteId}
-                    analysis={currentAnalysis}
-                    onRunAnalysis={handleRunAnalysis}
-                    analysisStageText={analysisStageText}
-                    onGenerateReport={handleGenerateReport}
-                  />
-                )}
+              {activeRoute === 'comparative-analysis' && (
+                <ComparativeAnalysisView
+                  targets={targets}
+                  activeTargetId={activeTargetId}
+                  onSelectTarget={handleSelectTarget}
+                  sites={earthSites}
+                  selectedSiteId={selectedSiteId}
+                  onSelectSite={setSelectedSiteId}
+                  analysis={currentAnalysis}
+                  onRunAnalysis={handleRunAnalysis}
+                  analysisStageText={analysisStageText}
+                  onGenerateReport={handleGenerateReport}
+                />
+              )}
 
-                {activeRoute === 'data-intelligence' && (
-                  <DataIntelligenceView
-                    datasets={datasets}
-                    onIngestDataset={handleIngestDataset}
-                  />
-                )}
+              {activeRoute === 'data-intelligence' && (
+                <DataIntelligenceView
+                  datasets={datasets}
+                  onIngestDataset={handleIngestDataset}
+                />
+              )}
 
-                {activeRoute === 'mission-reports' && (
-                  <MissionReportsView
-                    reports={reports}
-                    selectedReportId={selectedReportId}
-                    onSelectReport={setSelectedReportId}
-                    latestAnalysis={currentAnalysis}
-                    selectedSiteId={selectedSiteId}
-                    onGenerateReport={handleGenerateReport}
-                  />
-                )}
+              {activeRoute === 'mission-reports' && (
+                <MissionReportsView
+                  reports={reports}
+                  selectedReportId={selectedReportId}
+                  onSelectReport={setSelectedReportId}
+                  latestAnalysis={currentAnalysis}
+                  selectedSiteId={selectedSiteId}
+                  onGenerateReport={handleGenerateReport}
+                />
+              )}
 
-                {activeRoute === 'system-info' && <SystemInformationView />}
-              </motion.div>
-            </AnimatePresence>
+              {activeRoute === 'system-info' && <SystemInformationView />}
+            </div>
           )}
         </main>
 

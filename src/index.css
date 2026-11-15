@@ -46,6 +46,29 @@
     radial-gradient(ellipse 45% 30% at 90% 10%, rgba(56, 189, 248, 0.05), transparent);
 }
 
+/* Dynamic adjustable glass material surface shared across 01–07 sub-pages */
+.t9-glass-panel {
+  background-color: color-mix(
+    in srgb,
+    var(--gw-tint, #0B101B) calc(var(--gw-opacity, 0.78) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(var(--gw-blur, 16px)) saturate(var(--gw-saturation, 1.25));
+  -webkit-backdrop-filter: blur(var(--gw-blur, 16px)) saturate(var(--gw-saturation, 1.25));
+  border-color: color-mix(
+    in srgb,
+    rgba(255, 255, 255, 0.16) calc((0.35 + var(--gw-edge, 0.4) * 0.65) * 100%),
+    transparent
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(
+      in srgb,
+      rgba(255, 255, 255, 0.24) calc(var(--gw-edge, 0.4) * 100%),
+      transparent
+    ),
+    0 20px 44px -26px rgba(0, 0, 0, 0.75);
+}
+
 /* Custom sleek scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

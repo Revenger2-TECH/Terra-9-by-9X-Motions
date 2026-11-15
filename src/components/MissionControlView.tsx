@@ -61,7 +61,7 @@ export const MissionControlView: React.FC<MissionControlViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Editorial Mission Hero Panel */}
-      <section className="rounded-2xl bg-[#0B101B]/90 backdrop-blur-md border border-white/[0.08] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] overflow-hidden grid grid-cols-1 lg:grid-cols-12 items-stretch">
+      <section className="gw-reveal t9-glass-panel rounded-2xl border overflow-hidden grid grid-cols-1 lg:grid-cols-12 items-stretch">
         <div className="lg:col-span-8 p-6 lg:p-8 flex flex-col justify-between gap-7">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono text-slate-400">

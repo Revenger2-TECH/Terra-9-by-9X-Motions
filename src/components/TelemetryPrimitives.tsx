@@ -109,7 +109,7 @@ export const ModuleCard: React.FC<ModuleCardProps> = ({
 }) => {
   return (
     <section
-      className={`rounded-2xl bg-[#0B101B]/85 backdrop-blur-md border border-white/[0.08] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] flex flex-col overflow-hidden ${className}`}
+      className={`gw-reveal t9-glass-panel rounded-2xl border flex flex-col overflow-hidden ${className}`}
     >
       <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.06]">
         <div className="min-w-0">

@@ -23,7 +23,7 @@ import type {
   TargetId,
 } from './src/engine/types';
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT = Number(process.env.DEFAULT_APP_PORT || 3000);
 
 // In-memory scientific workspace state (initialized from validated catalog)
 const datasets: DatasetRegistryEntry[] = [...DATASET_REGISTRY];

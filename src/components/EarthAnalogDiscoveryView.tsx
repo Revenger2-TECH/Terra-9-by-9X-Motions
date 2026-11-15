@@ -84,7 +84,7 @@ export const EarthAnalogDiscoveryView: React.FC<EarthAnalogDiscoveryViewProps> =
   return (
     <div className="space-y-5">
       {/* Unified Single-Row Filter & Search Bar */}
-      <div className="rounded-2xl bg-[#0B101B]/85 backdrop-blur-md border border-white/[0.08] p-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div className="gw-reveal t9-glass-panel rounded-2xl border p-3.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 bg-[#04060A] p-1 rounded-xl border border-white/[0.06]">
           {targets.map((t) => (
             <button

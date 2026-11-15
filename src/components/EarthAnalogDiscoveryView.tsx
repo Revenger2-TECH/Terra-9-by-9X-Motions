@@ -9,7 +9,7 @@ import type {
   TerrainCategory,
 } from '../engine/types';
 import { SITE_VISUAL_REFS } from '../utils/planetaryImages';
-import { EarthWorldMap } from './EarthWorldMap';
+import { EarthWorldMap, type MapFocusTarget } from './EarthWorldMap';
 import { ModuleCard, SegmentedMetricBar, StatusIndicator } from './TelemetryPrimitives';
 
 interface EarthAnalogDiscoveryViewProps {
@@ -21,6 +21,7 @@ interface EarthAnalogDiscoveryViewProps {
   selectedSiteId: string;
   onSelectSite: (siteId: string) => void;
   onOpenComparison: (siteId: string) => void;
+  mapFocusTarget?: MapFocusTarget | null;
 }
 
 export const EarthAnalogDiscoveryView: React.FC<EarthAnalogDiscoveryViewProps> = ({
@@ -32,6 +33,7 @@ export const EarthAnalogDiscoveryView: React.FC<EarthAnalogDiscoveryViewProps> =
   selectedSiteId,
   onSelectSite,
   onOpenComparison,
+  mapFocusTarget,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [terrainFilter, setTerrainFilter] = useState<'ALL' | TerrainCategory>('ALL');
@@ -171,6 +173,7 @@ export const EarthAnalogDiscoveryView: React.FC<EarthAnalogDiscoveryViewProps> =
             evaluationsById={evaluationsById}
             selectedSiteId={activeSite?.id ?? ''}
             onSelectSite={onSelectSite}
+            focusTarget={mapFocusTarget}
           />
         </ModuleCard>
 

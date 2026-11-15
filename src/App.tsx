@@ -12,6 +12,7 @@ import {
   Play,
   Settings2,
   Sparkles,
+  Terminal,
   X,
 } from 'lucide-react';
 import { DEFAULT_FEATURE_WEIGHTS } from './engine/similarity';
@@ -29,11 +30,14 @@ import type {
 import { ComparativeAnalysisView } from './components/ComparativeAnalysisView';
 import { DataIntelligenceView } from './components/DataIntelligenceView';
 import { EarthAnalogDiscoveryView } from './components/EarthAnalogDiscoveryView';
+import type { MapFocusTarget } from './components/EarthWorldMap';
 import { MissionControlView, type ModuleRoute } from './components/MissionControlView';
 import { MissionReportsView } from './components/MissionReportsView';
 import { PlanetaryExplorerView } from './components/PlanetaryExplorerView';
+import { SICommandTerminal } from './components/SICommandTerminal';
 import { SystemInformationView } from './components/SystemInformationView';
 import { StatusIndicator } from './components/TelemetryPrimitives';
+import type { MapCitationTarget } from './components/ui/siMarkdown';
 import {
   DEFAULT_GLASS_SETTINGS,
   GlassMaterialPopover,
@@ -91,6 +95,8 @@ export default function App() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [glassSettings, setGlassSettings] = useState<GlassSettings>(DEFAULT_GLASS_SETTINGS);
   const [glassOpen, setGlassOpen] = useState(false);
+  const [siOpen, setSiOpen] = useState(false);
+  const [mapFocusTarget, setMapFocusTarget] = useState<MapFocusTarget | null>(null);
 
   const workspaceRootRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -306,6 +312,42 @@ export default function App() {
     setShowSpatialIntro(false);
   };
 
+  const handleFocusCitation = useCallback(
+    (citation: MapCitationTarget) => {
+      if (citation.kind === 'target' && citation.targetId) {
+        setActiveTargetId(citation.targetId);
+        setActiveRoute('planetary-explorer');
+        pushToast('cyan', `Target locked: ${citation.label}`);
+        return;
+      }
+      if (citation.siteId) {
+        setSelectedSiteId(citation.siteId);
+      }
+      setActiveRoute('earth-discovery');
+      setMapFocusTarget({
+        lat: citation.lat,
+        lon: citation.lon,
+        zoom: citation.zoom ?? 4.5,
+        label: citation.label,
+        nonce: Date.now(),
+      });
+      pushToast(
+        'cyan',
+        `Map focused: ${citation.label} (${citation.lat.toFixed(2)}°, ${citation.lon.toFixed(2)}°)`
+      );
+    },
+    [pushToast]
+  );
+
+  const handleSIAnalysisUpdated = useCallback(
+    (record: AnalysisRunRecord) => {
+      setAnalysisByTarget((prev) => ({ ...prev, [record.targetId]: record }));
+      setActiveTargetId(record.targetId);
+      refreshActivity();
+    },
+    [refreshActivity]
+  );
+
   const activeNav = NAV_ITEMS.find((item) => item.id === activeRoute) ?? NAV_ITEMS[0];
   const currentAnalysis = analysisByTarget[activeTargetId] ?? null;
   const activeTarget = targets.find((t) => t.id === activeTargetId) ?? null;
@@ -460,6 +502,20 @@ export default function App() {
 
             <button
               type="button"
+              aria-expanded={siOpen}
+              onClick={() => setSiOpen((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors ${
+                siOpen
+                  ? 'bg-[#22D3EE]/18 border-[#22D3EE]/60 text-[#22D3EE]'
+                  : 'bg-white/[0.04] border-white/10 text-slate-200 hover:text-[#22D3EE] hover:border-[#22D3EE]/40'
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5 text-[#22D3EE]" />
+              <span>SI Terminal</span>
+            </button>
+
+            <button
+              type="button"
               ref={glassButtonRef}
               aria-expanded={glassOpen}
               onClick={() => setGlassOpen((prev) => !prev)}
@@ -585,6 +641,7 @@ export default function App() {
                     setSelectedSiteId(siteId);
                     setActiveRoute('comparative-analysis');
                   }}
+                  mapFocusTarget={mapFocusTarget}
                 />
               )}
 
@@ -637,6 +694,16 @@ export default function App() {
           </span>
         </footer>
       </div>
+
+      <SICommandTerminal
+        open={siOpen}
+        onClose={() => setSiOpen(false)}
+        activeTarget={activeTarget}
+        activeTargetId={activeTargetId}
+        earthSites={earthSites}
+        onFocusLocation={handleFocusCitation}
+        onAnalysisUpdated={handleSIAnalysisUpdated}
+      />
     </div>
   );
 }

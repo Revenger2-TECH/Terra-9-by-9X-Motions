@@ -1,6 +1,18 @@
+import { GoogleGenAI, ThinkingLevel, type Content, type Part } from '@google/genai';
 import express from 'express';
+import http from 'node:http';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
+import {
+  SI_FALLBACK_MODEL_NAME,
+  SI_MODEL_NAME,
+  SI_SYSTEM_INSTRUCTION,
+  SI_TOOL_DECLARATIONS,
+  executeQueryDatasetMetadata,
+  executeRunSimilarityAnalysis,
+  type QueryMetadataToolArgs,
+  type RunSimilarityToolArgs,
+} from './src/agent/siTools';
 import {
   DATASET_REGISTRY,
   EARTH_SITES,
@@ -23,7 +35,24 @@ import type {
   TargetId,
 } from './src/engine/types';
 
-const PORT = Number(process.env.DEFAULT_APP_PORT || 3000);
+function getGeminiClient(): GoogleGenAI | null {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+}
+
+const PORT = Number(
+  process.env.DEFAULT_APP_PORT ||
+    (process.env.NGINX_PORT ? 3000 : process.env.PORT) ||
+    3000
+);
 
 // In-memory scientific workspace state (initialized from validated catalog)
 const datasets: DatasetRegistryEntry[] = [...DATASET_REGISTRY];
@@ -531,15 +560,329 @@ function createApp() {
     }
   });
 
+  app.post('/api/si/agent', async (req, res) => {
+    const {
+      prompt,
+      history = [],
+      activeTargetId,
+      stream = true,
+    }: {
+      prompt?: string;
+      history?: Array<{ role?: string; text?: string }>;
+      activeTargetId?: TargetId;
+      stream?: boolean;
+    } = req.body ?? {};
+
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      return res.status(400).json({ error: 'A non-empty scientific prompt is required.' });
+    }
+    if (prompt.length > 4000) {
+      return res.status(400).json({ error: 'Prompt exceeds 4,000 character limit.' });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(503).json({
+        error:
+          'GEMINI_API_KEY is not configured in the server environment. Set it in Settings > Secrets to enable the SI Agent.',
+      });
+    }
+
+    const sanitizedHistory: Content[] = Array.isArray(history)
+      ? history
+          .slice(-10)
+          .filter(
+            (m) =>
+              m &&
+              (m.role === 'user' || m.role === 'model') &&
+              typeof m.text === 'string' &&
+              m.text.trim().length > 0
+          )
+          .map((m) => ({
+            role: m.role as 'user' | 'model',
+            parts: [{ text: m.text!.trim() }],
+          }))
+      : [];
+
+    const contextHeader = `[Workspace Context: activeTarget=${activeTargetId ?? 'shackleton'}, datasets=${datasets.length}, earthSites=${earthSites.length}]`;
+    const contents: Content[] = [
+      ...sanitizedHistory,
+      {
+        role: 'user',
+        parts: [{ text: `${contextHeader}\n${prompt.trim()}` }],
+      },
+    ];
+
+    interface TraceStep {
+      id: string;
+      phase: 'planning' | 'tool_call' | 'tool_result' | 'synthesizing';
+      title: string;
+      detail: string;
+      toolName?: string;
+      args?: Record<string, unknown>;
+      timestampUtc: string;
+    }
+
+    const traces: TraceStep[] = [];
+    let latestAnalysisRecord: AnalysisRunRecord | null = null;
+    let streamOpen = false;
+
+    const emitEvent = (payload: Record<string, unknown>) => {
+      if (stream && !res.writableEnded) {
+        if (!streamOpen) {
+          res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-cache, no-transform');
+          res.setHeader('X-Accel-Buffering', 'no');
+          streamOpen = true;
+        }
+        res.write(`${JSON.stringify(payload)}\n`);
+      }
+    };
+
+    const pushTrace = (step: Omit<TraceStep, 'id' | 'timestampUtc'>) => {
+      const fullStep: TraceStep = {
+        ...step,
+        id: `tr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        timestampUtc: new Date().toISOString(),
+      };
+      traces.push(fullStep);
+      emitEvent({ type: 'trace', step: fullStep });
+    };
+
+    try {
+      const siCtx = {
+        targets: PLANETARY_TARGETS,
+        earthSites,
+        datasets,
+        onAnalysisRecorded: (record: AnalysisRunRecord) => {
+          latestAnalysisRecord = record;
+          analysisStore.set(record.analysisId, record);
+          const top = record.results.find((r) => r.rank === 1);
+          recordActivity(
+            'ANALYSIS',
+            `SI Agent similarity run (${record.analysisId})`,
+            `${record.targetName} evaluated via SI orchestrator. Top candidate: ${top ? `${top.siteName} (${(top.overallSimilarityScore! * 100).toFixed(1)}%)` : 'Insufficient data'}.`
+          );
+        },
+      };
+
+      let finalAnswer = '';
+      let activeModel = SI_MODEL_NAME;
+      const maxSteps = 5;
+
+      const isTransientError = (err: unknown): boolean => {
+        const msg = err instanceof Error ? err.message : String(err ?? '');
+        return (
+          msg.includes('503') ||
+          msg.includes('UNAVAILABLE') ||
+          msg.includes('high demand') ||
+          msg.includes('429') ||
+          msg.includes('RESOURCE_EXHAUSTED') ||
+          msg.includes('ECONNRESET') ||
+          msg.includes('ETIMEDOUT') ||
+          msg.includes('fetch failed')
+        );
+      };
+
+      const callModelWithRetry = async (withTools: boolean) => {
+        const modelsToTry =
+          activeModel === SI_MODEL_NAME
+            ? [SI_MODEL_NAME, SI_FALLBACK_MODEL_NAME]
+            : [activeModel];
+
+        let lastErr: unknown;
+        for (const candidateModel of modelsToTry) {
+          if (candidateModel !== activeModel) {
+            activeModel = candidateModel;
+            pushTrace({
+              phase: 'planning',
+              title: `Switching to ${candidateModel}`,
+              detail: `${SI_MODEL_NAME} experiencing transient upstream congestion; routing to backup reasoning model ${candidateModel}.`,
+            });
+          }
+
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const resp = await ai.models.generateContent({
+                model: candidateModel,
+                contents,
+                config: {
+                  systemInstruction: SI_SYSTEM_INSTRUCTION,
+                  ...(candidateModel.startsWith('gemini-4')
+                    ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+                    : {}),
+                  ...(withTools ? { tools: [{ functionDeclarations: SI_TOOL_DECLARATIONS }] } : {}),
+                },
+              });
+              return resp;
+            } catch (err) {
+              lastErr = err;
+              if (!isTransientError(err) || attempt === 2) {
+                break;
+              }
+              const delayMs = 700 * Math.pow(2, attempt);
+              pushTrace({
+                phase: 'planning',
+                title: `Retrying ${candidateModel} (${attempt + 2}/3)`,
+                detail: `Transient upstream load detected; backing off ${delayMs} ms before retry...`,
+              });
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+          }
+
+          if (!isTransientError(lastErr)) {
+            throw lastErr;
+          }
+        }
+        throw lastErr;
+      };
+
+      for (let stepIdx = 0; stepIdx < maxSteps; stepIdx++) {
+        pushTrace({
+          phase: 'planning',
+          title:
+            stepIdx === 0
+              ? 'Planning Autonomous Investigation'
+              : `Evaluating Tool Evidence (Pass ${stepIdx + 1})`,
+          detail:
+            stepIdx === 0
+              ? `Model ${activeModel} parsing geospatial intent and scientific guardrails...`
+              : 'Reviewing returned dataset metadata and similarity metrics for next action...',
+        });
+
+        const response = await callModelWithRetry(true);
+
+        const candidateContent = response.candidates?.[0]?.content;
+        if (candidateContent) {
+          contents.push(candidateContent);
+        }
+
+        const calls = response.functionCalls;
+        if (!calls || calls.length === 0) {
+          finalAnswer =
+            response.text?.trim() ||
+            'Investigation complete, but the model returned an empty synthesis.';
+          pushTrace({
+            phase: 'synthesizing',
+            title: 'Synthesizing Verified Brief',
+            detail:
+              'Confirmed thermal measurement compatibility, WGS84 bounds, and dataset provenance.',
+          });
+          break;
+        }
+
+        const responseParts: Part[] = [];
+        for (const call of calls) {
+          const toolName = call.name ?? 'unknown_tool';
+          const args = (call.args ?? {}) as Record<string, unknown>;
+
+          pushTrace({
+            phase: 'tool_call',
+            toolName,
+            args,
+            title: `Executing ${toolName}`,
+            detail: Object.keys(args).length > 0 ? JSON.stringify(args) : 'Default workspace scope',
+          });
+
+          let toolResultPayload: Record<string, unknown>;
+          let summaryText: string;
+
+          if (toolName === 'run_similarity_analysis') {
+            const out = executeRunSimilarityAnalysis(args as RunSimilarityToolArgs, siCtx);
+            toolResultPayload = out.resultPayload;
+            summaryText = out.summaryText;
+          } else if (toolName === 'query_dataset_metadata') {
+            const out = executeQueryDatasetMetadata(args as QueryMetadataToolArgs, siCtx);
+            toolResultPayload = out.resultPayload;
+            summaryText = out.summaryText;
+          } else {
+            summaryText = `Unsupported tool requested: ${toolName}`;
+            toolResultPayload = { ok: false, error: summaryText };
+          }
+
+          pushTrace({
+            phase: 'tool_result',
+            toolName,
+            title: `Completed ${toolName}`,
+            detail: summaryText,
+          });
+
+          responseParts.push({
+            functionResponse: {
+              id: call.id,
+              name: toolName,
+              response: toolResultPayload,
+            },
+          });
+        }
+
+        contents.push({
+          role: 'user',
+          parts: responseParts,
+        });
+
+        if (stepIdx === maxSteps - 1) {
+          pushTrace({
+            phase: 'synthesizing',
+            title: 'Finalizing Synthesis',
+            detail: 'Compiling evidence from completed ReAct tool passes...',
+          });
+          const fallbackResp = await callModelWithRetry(false);
+          finalAnswer =
+            fallbackResp.text?.trim() || 'Reached maximum reasoning depth after tool execution.';
+        }
+      }
+
+      const finalPayload = {
+        type: 'final',
+        model: activeModel,
+        answerMarkdown: finalAnswer,
+        traces,
+        analysisRecord: latestAnalysisRecord,
+      };
+
+      if (stream) {
+        emitEvent(finalPayload);
+        return res.end();
+      }
+      return res.json(finalPayload);
+    } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : 'SI Agent execution failed.';
+      let friendlyMsg = rawMsg;
+      if (rawMsg.includes('API_KEY_INVALID') || rawMsg.includes('PERMISSION_DENIED')) {
+        friendlyMsg =
+          'Gemini API authentication failed. Please verify GEMINI_API_KEY in Settings > Secrets.';
+      } else if (rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('429')) {
+        friendlyMsg =
+          'Gemini API rate or quota limit reached. Please retry shortly or check quota in Settings > Secrets.';
+      } else if (rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE') || rawMsg.includes('high demand')) {
+        friendlyMsg =
+          'Gemini reasoning models are temporarily experiencing high upstream demand (503). Please retry your SI query in a few seconds.';
+      } else if (rawMsg.includes('NOT_FOUND') || rawMsg.includes('404')) {
+        friendlyMsg = `Requested Gemini model (${SI_MODEL_NAME}) was unavailable or returned 404.`;
+      }
+
+      if (streamOpen && !res.writableEnded) {
+        emitEvent({ type: 'error', error: friendlyMsg });
+        return res.end();
+      }
+      return res.status(502).json({ error: friendlyMsg });
+    }
+  });
+
   return app;
 }
 
 async function startServer() {
   const app = createApp();
+  const httpServer = http.createServer(app);
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -551,7 +894,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`TERRA-9 server operational on http://0.0.0.0:${PORT}`);
   });
 }

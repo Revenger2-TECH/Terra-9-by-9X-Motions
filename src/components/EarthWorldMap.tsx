@@ -4,11 +4,20 @@ import { Crosshair, Maximize2, Minus, Plus } from 'lucide-react';
 import type { EarthSite, SiteSimilarityEvaluation } from '../engine/types';
 import { WORLD_CONTINENT_POLYGONS } from '../data/worldLand';
 
+export interface MapFocusTarget {
+  lat: number;
+  lon: number;
+  zoom?: number;
+  label?: string;
+  nonce: number;
+}
+
 interface EarthWorldMapProps {
   sites: EarthSite[];
   evaluationsById: Record<string, SiteSimilarityEvaluation>;
   selectedSiteId: string;
   onSelectSite: (siteId: string) => void;
+  focusTarget?: MapFocusTarget | null;
 }
 
 export const EarthWorldMap: React.FC<EarthWorldMapProps> = ({
@@ -16,10 +25,12 @@ export const EarthWorldMap: React.FC<EarthWorldMapProps> = ({
   evaluationsById,
   selectedSiteId,
   onSelectSite,
+  focusTarget,
 }) => {
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const focusLayerRef = useRef<L.LayerGroup | null>(null);
   const [cursorCoords, setCursorCoords] = useState<{ lat: number; lon: number }>({
     lat: 10.0,
     lon: 0.0,
@@ -86,7 +97,9 @@ export const EarthWorldMap: React.FC<EarthWorldMapProps> = ({
     }
 
     const markerLayer = L.layerGroup().addTo(map);
+    const focusLayer = L.layerGroup().addTo(map);
     markerLayerRef.current = markerLayer;
+    focusLayerRef.current = focusLayer;
     mapInstanceRef.current = map;
 
     map.on('mousemove', (ev: L.LeafletMouseEvent) => {
@@ -107,6 +120,7 @@ export const EarthWorldMap: React.FC<EarthWorldMapProps> = ({
       map.remove();
       mapInstanceRef.current = null;
       markerLayerRef.current = null;
+      focusLayerRef.current = null;
     };
   }, []);
 
@@ -201,6 +215,45 @@ export const EarthWorldMap: React.FC<EarthWorldMapProps> = ({
       marker.addTo(layer);
     }
   }, [sites, evaluationsById, selectedSiteId, onSelectSite]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const focusLayer = focusLayerRef.current;
+    if (!map || !focusLayer || !focusTarget) return;
+
+    focusLayer.clearLayers();
+    const targetZoom = focusTarget.zoom ?? 4.5;
+    const prefersReduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReduced) {
+      map.setView([focusTarget.lat, focusTarget.lon], targetZoom);
+    } else {
+      map.flyTo([focusTarget.lat, focusTarget.lon], targetZoom, { duration: 0.65 });
+    }
+
+    const reticleHtml = `
+      <div style="
+        position: relative;
+        width: 30px;
+        height: 30px;
+        border: 1.5px dashed rgba(34, 211, 238, 0.85);
+        border-radius: 9999px;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        box-shadow: 0 0 18px rgba(34, 211, 238, 0.25);
+      "></div>
+    `;
+    L.marker([focusTarget.lat, focusTarget.lon], {
+      icon: L.divIcon({
+        html: reticleHtml,
+        className: 'terra9-leaflet-focus',
+        iconSize: [0, 0],
+      }),
+      interactive: false,
+    }).addTo(focusLayer);
+  }, [focusTarget]);
 
   return (
     <div className="relative w-full h-[380px] lg:h-[460px] rounded-xl border border-white/[0.08] bg-[#05080F] overflow-hidden">
